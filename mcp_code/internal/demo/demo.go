@@ -1,0 +1,223 @@
+package demo
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	agentrun "github.com/alibabacloud-go/agentrun-20250910/v5/client"
+	fc "github.com/alibabacloud-go/fc-20230330/v4/client"
+	"github.com/alibabacloud-go/tea/tea"
+	fc2016 "github.com/aliyun/fc-go-sdk"
+)
+
+const (
+	region                 = "cn-hangzhou"
+	defaultProto           = "https"
+	defaultControlEndpoint = "agentrun.cn-hangzhou.aliyuncs.com"
+	signPrefix             = "aliyun_v4"
+	signAlgorithm          = "AGENTRUN4-HMAC-SHA256"
+	initializeBody         = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"probe","version":"1.0.0"}}}`
+)
+
+type demoContext struct {
+	ctx          context.Context
+	rootDir      string
+	moduleDir    string
+	binDir       string
+	proto        string
+	dataEndpoint string
+	uid          string
+	ak           string
+	sk           string
+	sdkClient    *agentrun.Client
+	fcClient     *fc.Client
+	tempClient   *fc2016.Client
+	toolName     string
+	hookFuncName string
+}
+
+type hookObservation struct {
+	toolNames      []string
+	hookInfoFound  bool
+	multiplyResult string
+	multiplyHooked bool
+	addResult      string
+	addHooked      bool
+}
+
+func Run() error {
+	ctx := context.Background()
+	moduleDir, rootDir, err := locateDirs()
+	if err != nil {
+		return err
+	}
+	loadEnv(rootDir, moduleDir)
+
+	proto := strings.TrimSpace(strings.ToLower(os.Getenv("AGENTRUN_PROTO")))
+	if proto == "" {
+		proto = defaultProto
+	}
+	if proto != "http" && proto != "https" {
+		return fmt.Errorf("AGENTRUN_PROTO 仅支持 http/https，实际为 %q", proto)
+	}
+
+	uid := strings.TrimSpace(os.Getenv("ALIBABA_CLOUD_UID"))
+	ak := strings.TrimSpace(os.Getenv("ALIBABA_CLOUD_ACCESS_KEY_ID"))
+	sk := strings.TrimSpace(os.Getenv("ALIBABA_CLOUD_ACCESS_KEY_SECRET"))
+	if uid == "" || ak == "" || sk == "" {
+		return errors.New("缺少阿里云凭证，请先配置当前模块的 .env 或环境变量")
+	}
+
+	controlEndpoint := endpointHost(os.Getenv("AGENTRUN_CONTROL_ENDPOINT"), defaultControlEndpoint)
+	dataEndpoint := endpointHost(os.Getenv("AGENTRUN_DATA_ENDPOINT"), defaultDataEndpoint(uid))
+	configureNoProxy(uid, proto, dataEndpoint)
+
+	sdkClient, err := newSDKClient(controlEndpoint, proto, ak, sk)
+	if err != nil {
+		return err
+	}
+	fcClient, err := newFCClient(proto, uid, ak, sk)
+	if err != nil {
+		return err
+	}
+	tempClient, err := newFCTempBucketClient(proto, uid, ak, sk)
+	if err != nil {
+		return err
+	}
+
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	binDir := filepath.Join(moduleDir, ".bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		return fmt.Errorf("创建 bin 目录失败: %w", err)
+	}
+
+	dctx := &demoContext{
+		ctx:          ctx,
+		rootDir:      rootDir,
+		moduleDir:    moduleDir,
+		binDir:       binDir,
+		proto:        proto,
+		dataEndpoint: dataEndpoint,
+		uid:          uid,
+		ak:           ak,
+		sk:           sk,
+		sdkClient:    sdkClient,
+		fcClient:     fcClient,
+		tempClient:   tempClient,
+		toolName:     "hook-quickstart-code-" + suffix,
+		hookFuncName: "hook-qs-code-hook-" + suffix,
+	}
+
+	return dctx.run()
+}
+
+func (d *demoContext) run() error {
+	slog.Info("开始运行 CODE_PACKAGE Hook quickstart", "tool", d.toolName, "dataEndpoint", d.dataEndpoint)
+
+	var createdTool bool
+	defer func() {
+		if createdTool {
+			if err := deleteTool(d.sdkClient, d.toolName); err != nil {
+				slog.Warn("清理 tool 失败", "tool", d.toolName, "error", err)
+			}
+		}
+	}()
+
+	var createdFunctions []string
+	defer func() {
+		for i := len(createdFunctions) - 1; i >= 0; i-- {
+			if err := deleteFunction(d.fcClient, createdFunctions[i]); err != nil {
+				slog.Warn("清理 FC 函数失败", "function", createdFunctions[i], "error", err)
+			}
+		}
+	}()
+
+	if err := buildBinary("calculator", filepath.Join(d.moduleDir, "services", "calculator"), filepath.Join(d.binDir, "calculator")); err != nil {
+		return err
+	}
+	if err := buildBinary("userhook", filepath.Join(d.moduleDir, "services", "userhook"), filepath.Join(d.binDir, "userhook")); err != nil {
+		return err
+	}
+
+	hookURL, err := deployBinaryAsFunction(d.ctx, d.fcClient, d.tempClient, d.uid, filepath.Join(d.binDir, "userhook"), "userhook", d.hookFuncName)
+	if err != nil {
+		return err
+	}
+	createdFunctions = append(createdFunctions, d.hookFuncName)
+
+	toolZipPath := filepath.Join(d.binDir, "calculator.zip")
+	if err := createToolCodeZipFile(toolZipPath, filepath.Join(d.binDir, "calculator"), "calculator"); err != nil {
+		return err
+	}
+	codePackage, err := uploadCodePackageToFCTempBucket(d.tempClient, d.uid, toolZipPath)
+	if err != nil {
+		return err
+	}
+
+	createToolRequestID, err := createCodeTool(d.sdkClient, d.toolName, codePackage, strings.TrimSuffix(hookURL, "/")+"/hook")
+	if err != nil {
+		return err
+	}
+	createdTool = true
+
+	if err := waitForToolReady(d.sdkClient, d.toolName, createToolRequestID, 5*time.Minute); err != nil {
+		return err
+	}
+
+	toolID, err := d.assertCodeFunctions()
+	if err != nil {
+		return err
+	}
+
+	obs, mcpEndpoint, err := d.verifyHookEffects(3)
+	if err != nil {
+		return err
+	}
+
+	slog.Info("CODE_PACKAGE Hook quickstart 通过", "tool", d.toolName, "toolId", toolID)
+	fmt.Printf("tool=%s\n", d.toolName)
+	fmt.Printf("tool_id=%s\n", toolID)
+	fmt.Printf("hook=%s\n", strings.TrimSuffix(hookURL, "/")+"/hook")
+	fmt.Printf("data_plane=%s\n", mcpEndpoint)
+	fmt.Printf("tools=%s\n", strings.Join(obs.toolNames, ","))
+	fmt.Printf("multiply=%s\n", obs.multiplyResult)
+	fmt.Printf("add=%s\n", obs.addResult)
+	return nil
+}
+
+func (d *demoContext) assertCodeFunctions() (string, error) {
+	toolDetail, err := getToolDetail(d.sdkClient, d.toolName)
+	if err != nil {
+		return "", err
+	}
+	toolID := tea.StringValue(toolDetail.ToolId)
+	if toolID == "" {
+		toolID = d.toolName
+	}
+
+	storedProxy := false
+	storedHooks := 0
+	if toolDetail.McpConfig != nil {
+		storedProxy = tea.BoolValue(toolDetail.McpConfig.ProxyEnabled)
+		if cfg := toolDetail.McpConfig.McpProxyConfiguration; cfg != nil && cfg.Hooks != nil {
+			storedHooks = len(cfg.Hooks)
+		}
+	}
+	if !storedProxy || storedHooks != 3 {
+		return "", fmt.Errorf("后端存储的 hook 配置不符合预期: proxyEnabled=%v hooks=%d", storedProxy, storedHooks)
+	}
+
+	if err := waitForFunction(d.fcClient, "agentrun-"+toolID, 2*time.Minute); err != nil {
+		return "", fmt.Errorf("等待主函数失败: %w", err)
+	}
+	if err := waitForFunction(d.fcClient, "agentrun-proxy-"+toolID, 2*time.Minute); err != nil {
+		return "", fmt.Errorf("等待 proxy 函数失败: %w", err)
+	}
+	return toolID, nil
+}

@@ -1,0 +1,8 @@
+.env
+mcp_remote/mcp_remote
+mcp_remote/services/calculator/calculator
+mcp_remote/services/userhook/userhook
+mcp_code/mcp_code
+mcp_code/services/calculator/calculator
+mcp_code/services/userhook/userhook
+.bin/
