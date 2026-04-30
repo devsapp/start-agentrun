@@ -76,7 +76,7 @@ func createToolRequestCodeLocation(body *agentrun.CreateToolInputV2) (codePackag
 func newCodeToolInput(toolName string, codePackage codePackageLocation, hookURL string) *agentrun.CreateToolInputV2 {
 	return &agentrun.CreateToolInputV2{
 		ToolName:     tea.String(toolName),
-		Description:  tea.String("hook quickstart CODE_PACKAGE"),
+		Description:  tea.String("Hook quickstart CODE_PACKAGE 订单查询示例"),
 		ToolType:     tea.String("MCP"),
 		CreateMethod: tea.String("CODE_PACKAGE"),
 		McpConfig: &agentrun.McpConfig{
@@ -90,7 +90,7 @@ func newCodeToolInput(toolName string, codePackage codePackageLocation, hookURL 
 			OssBucketName: tea.String(codePackage.OSSBucketName),
 			OssObjectName: tea.String(codePackage.OSSObjectName),
 			Language:      tea.String("nodejs22"),
-			Command:       []*string{tea.String("/code/calculator")},
+			Command:       []*string{tea.String("/code/orderdesk")},
 		},
 		Port: tea.Int32(9000),
 	}
@@ -102,21 +102,7 @@ func buildHooks(hookURL string) []*agentrun.Hook {
 	return []*agentrun.Hook{
 		{
 			Url:         tea.String(hookURL),
-			Description: tea.String("inject hook_info"),
-			Enabled:     tea.Bool(true),
-			Timeout:     tea.Int32(5000),
-			Event:       tea.String("POST_LIST_TOOLS"),
-		},
-		{
-			Url:         tea.String(hookURL),
-			Description: tea.String("rewrite multiply args"),
-			Enabled:     tea.Bool(true),
-			Timeout:     tea.Int32(5000),
-			Event:       tea.String("PRE_CALL_TOOL"),
-		},
-		{
-			Url:         tea.String(hookURL),
-			Description: tea.String("append hooked marker"),
+			Description: tea.String("脱敏订单结果并注入 audit_id"),
 			Enabled:     tea.Bool(true),
 			Timeout:     tea.Int32(5000),
 			Event:       tea.String("POST_CALL_TOOL"),

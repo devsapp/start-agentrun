@@ -55,44 +55,36 @@ func collectHookObservation(ctx context.Context, client *mcpclient.Client) (hook
 	if err != nil {
 		return obs, fmt.Errorf("tools/list 失败: %w", err)
 	}
+	orderToolFound := false
 	for _, tool := range toolsResult.Tools {
 		obs.toolNames = append(obs.toolNames, tool.Name)
-		if tool.Name == "hook_info" {
-			obs.hookInfoFound = true
+		if tool.Name == "get_order" {
+			orderToolFound = true
 		}
 	}
-	if !obs.hookInfoFound {
-		return obs, fmt.Errorf("tools/list 未出现 hook_info: %v", obs.toolNames)
+	if !orderToolFound {
+		return obs, fmt.Errorf("tools/list 未出现 get_order: %v", obs.toolNames)
 	}
 
-	multiplyResult, err := client.CallTool(ctx, mcp.CallToolRequest{
+	orderResult, err := client.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
-			Name:      "multiply",
-			Arguments: map[string]any{"a": float64(2), "b": float64(3)},
+			Name:      "get_order",
+			Arguments: map[string]any{"order_id": "ORDER-1001"},
 		},
 	})
 	if err != nil {
-		return obs, fmt.Errorf("multiply 调用失败: %w", err)
+		return obs, fmt.Errorf("get_order 调用失败: %w", err)
 	}
-	obs.multiplyResult = extractText(multiplyResult)
-	obs.multiplyHooked = strings.Contains(obs.multiplyResult, "121")
-	if !obs.multiplyHooked {
-		return obs, fmt.Errorf("multiply 未被 hook 改写，实际结果: %q", obs.multiplyResult)
-	}
-
-	addResult, err := client.CallTool(ctx, mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name:      "add",
-			Arguments: map[string]any{"a": float64(1), "b": float64(2)},
-		},
-	})
-	if err != nil {
-		return obs, fmt.Errorf("add 调用失败: %w", err)
-	}
-	obs.addResult = extractText(addResult)
-	obs.addHooked = strings.Contains(obs.addResult, "[hooked:200]")
-	if !obs.addHooked {
-		return obs, fmt.Errorf("add 未被 hook 改写，实际结果: %q", obs.addResult)
+	obs.orderResult = extractText(orderResult)
+	obs.orderMasked = strings.Contains(obs.orderResult, "138****5678") &&
+		strings.Contains(obs.orderResult, "zh***@example.com") &&
+		strings.Contains(obs.orderResult, "浙江省杭州市****") &&
+		!strings.Contains(obs.orderResult, "13812345678") &&
+		!strings.Contains(obs.orderResult, "zhangsan@example.com") &&
+		!strings.Contains(obs.orderResult, "浙江省杭州市西湖区")
+	obs.auditIDFound = strings.Contains(obs.orderResult, `"audit_id":"audit_`)
+	if !obs.orderMasked || !obs.auditIDFound {
+		return obs, fmt.Errorf("get_order 结果未完成脱敏或缺少 audit_id，实际结果: %q", obs.orderResult)
 	}
 	return obs, nil
 }

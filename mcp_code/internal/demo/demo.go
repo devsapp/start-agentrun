@@ -43,12 +43,10 @@ type demoContext struct {
 }
 
 type hookObservation struct {
-	toolNames      []string
-	hookInfoFound  bool
-	multiplyResult string
-	multiplyHooked bool
-	addResult      string
-	addHooked      bool
+	toolNames    []string
+	orderResult  string
+	orderMasked  bool
+	auditIDFound bool
 }
 
 func Run() error {
@@ -138,7 +136,7 @@ func (d *demoContext) run() error {
 		}
 	}()
 
-	if err := buildBinary("calculator", filepath.Join(d.moduleDir, "services", "calculator"), filepath.Join(d.binDir, "calculator")); err != nil {
+	if err := buildBinary("orderdesk", filepath.Join(d.moduleDir, "services", "orderdesk"), filepath.Join(d.binDir, "orderdesk")); err != nil {
 		return err
 	}
 	if err := buildBinary("userhook", filepath.Join(d.moduleDir, "services", "userhook"), filepath.Join(d.binDir, "userhook")); err != nil {
@@ -151,8 +149,8 @@ func (d *demoContext) run() error {
 	}
 	createdFunctions = append(createdFunctions, d.hookFuncName)
 
-	toolZipPath := filepath.Join(d.binDir, "calculator.zip")
-	if err := createToolCodeZipFile(toolZipPath, filepath.Join(d.binDir, "calculator"), "calculator"); err != nil {
+	toolZipPath := filepath.Join(d.binDir, "orderdesk.zip")
+	if err := createToolCodeZipFile(toolZipPath, filepath.Join(d.binDir, "orderdesk"), "orderdesk"); err != nil {
 		return err
 	}
 	codePackage, err := uploadCodePackageToFCTempBucket(d.tempClient, d.uid, toolZipPath)
@@ -186,8 +184,7 @@ func (d *demoContext) run() error {
 	fmt.Printf("hook=%s\n", strings.TrimSuffix(hookURL, "/")+"/hook")
 	fmt.Printf("data_plane=%s\n", mcpEndpoint)
 	fmt.Printf("tools=%s\n", strings.Join(obs.toolNames, ","))
-	fmt.Printf("multiply=%s\n", obs.multiplyResult)
-	fmt.Printf("add=%s\n", obs.addResult)
+	fmt.Printf("order=%s\n", obs.orderResult)
 	return nil
 }
 
@@ -209,7 +206,7 @@ func (d *demoContext) assertCodeFunctions() (string, error) {
 			storedHooks = len(cfg.Hooks)
 		}
 	}
-	if !storedProxy || storedHooks != 3 {
+	if !storedProxy || storedHooks != 1 {
 		return "", fmt.Errorf("后端存储的 hook 配置不符合预期: proxyEnabled=%v hooks=%d", storedProxy, storedHooks)
 	}
 

@@ -27,7 +27,7 @@ func createRemoteTool(sdkClient *agentrun.Client, toolName, remoteURL, hookURL s
 
 	createReq := &agentrun.CreateToolInputV2{
 		ToolName:     tea.String(toolName),
-		Description:  tea.String("hook quickstart MCP_REMOTE"),
+		Description:  tea.String("Hook quickstart MCP_REMOTE 订单查询示例"),
 		ToolType:     tea.String("MCP"),
 		CreateMethod: tea.String("MCP_REMOTE"),
 		ProtocolSpec: tea.String(protocolSpec),
@@ -52,7 +52,7 @@ func createRemoteTool(sdkClient *agentrun.Client, toolName, remoteURL, hookURL s
 
 	plainReq := &agentrun.CreateToolInputV2{
 		ToolName:     tea.String(toolName),
-		Description:  tea.String("hook quickstart MCP_REMOTE"),
+		Description:  tea.String("Hook quickstart MCP_REMOTE 订单查询示例"),
 		ToolType:     tea.String("MCP"),
 		CreateMethod: tea.String("MCP_REMOTE"),
 		ProtocolSpec: tea.String(protocolSpec),
@@ -84,21 +84,7 @@ func buildHooks(hookURL string) []*agentrun.Hook {
 	return []*agentrun.Hook{
 		{
 			Url:         tea.String(hookURL),
-			Description: tea.String("inject hook_info"),
-			Enabled:     tea.Bool(true),
-			Timeout:     tea.Int32(5000),
-			Event:       tea.String("POST_LIST_TOOLS"),
-		},
-		{
-			Url:         tea.String(hookURL),
-			Description: tea.String("rewrite multiply args"),
-			Enabled:     tea.Bool(true),
-			Timeout:     tea.Int32(5000),
-			Event:       tea.String("PRE_CALL_TOOL"),
-		},
-		{
-			Url:         tea.String(hookURL),
-			Description: tea.String("append hooked marker"),
+			Description: tea.String("脱敏订单结果并注入 audit_id"),
 			Enabled:     tea.Bool(true),
 			Timeout:     tea.Int32(5000),
 			Event:       tea.String("POST_CALL_TOOL"),
@@ -108,9 +94,7 @@ func buildHooks(hookURL string) []*agentrun.Hook {
 
 func buildRawHooks(hookURL string) []map[string]any {
 	return []map[string]any{
-		{"url": hookURL, "description": "inject hook_info", "enabled": true, "timeout": 5000, "event": "POST_LIST_TOOLS"},
-		{"url": hookURL, "description": "rewrite multiply args", "enabled": true, "timeout": 5000, "event": "PRE_CALL_TOOL"},
-		{"url": hookURL, "description": "append hooked marker", "enabled": true, "timeout": 5000, "event": "POST_CALL_TOOL"},
+		{"url": hookURL, "description": "脱敏订单结果并注入 audit_id", "enabled": true, "timeout": 5000, "event": "POST_CALL_TOOL"},
 	}
 }
 
@@ -125,7 +109,7 @@ func createTool(sdkClient *agentrun.Client, body *agentrun.CreateToolInputV2) er
 func rawCreateTool(sdkClient *agentrun.Client, toolName, protocolSpec string, hooks []map[string]any) error {
 	body := map[string]any{
 		"toolName":     toolName,
-		"description":  "hook quickstart MCP_REMOTE",
+		"description":  "Hook quickstart MCP_REMOTE 订单查询示例",
 		"toolType":     "MCP",
 		"createMethod": "MCP_REMOTE",
 		"protocolSpec": protocolSpec,
