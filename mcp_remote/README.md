@@ -23,6 +23,8 @@ go run .
 
 如果要验证其他环境，在 `.env` 中改这两个 endpoint。
 
+创建 MCP_REMOTE 工具时，写入控制面的远程 MCP 地址使用函数基地址，不额外拼 `/mcp`；验证数据面时访问 AgentRun 数据面地址 `.../tools/<tool>/mcp`。
+
 跑通后会验证：
 
 1. `tools/list` 出现 `get_order`

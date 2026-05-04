@@ -156,7 +156,7 @@ func (d *demoContext) run() error {
 	createdFunctions = append(createdFunctions, d.hookFuncName)
 	slog.Info("Hook 函数已部署", "url", hookURL)
 
-	remoteURL := strings.TrimSuffix(mcpURL, "/") + "/mcp"
+	remoteURL := remoteMCPConfigURL(mcpURL)
 	hookEndpoint := strings.TrimSuffix(hookURL, "/") + "/hook"
 	if err := createRemoteTool(d.sdkClient, d.toolName, remoteURL, hookEndpoint); err != nil {
 		return err
