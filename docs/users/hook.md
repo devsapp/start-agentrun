@@ -1,188 +1,104 @@
-# User Hook 开发指南
+# AgentRun MCP Tool Hook 使用指南
 
-agentrun 支持在 MCP 请求的各个阶段注入自定义逻辑（User Hook）。通过 Hook，你可以在不修改 MCP 服务本身的情况下实现：
+AgentRun MCP Tool Hook 是 AgentRun MCP 代理上的 HTTP 回调机制。开启 MCP proxy 后，客户端仍然访问 AgentRun 数据面；AgentRun 会在 `tools/list` 或 `tools/call` 的前后调用你的 Hook 服务，让你有机会改写请求、改写响应或直接拦截调用。
 
-- 修改工具列表（添加/删除/重命名工具）
-- 拦截和修改工具调用的请求参数
-- 修改工具调用的返回结果
-- 实现凭证转换、审计日志等横切关注点
+Hook 不是一个新工具，也不是替代 MCP 服务的业务实现。它适合处理横切逻辑，例如权限校验、凭证转换、审计编号、结果脱敏、工具列表调整等。真正的业务能力仍应放在 MCP 服务、Function Call 工具或 Skill 中。
 
-## 快速开始
+## 一句话流程
 
-### 1. 编写 Hook 服务
-
-Hook 服务是一个普通的 HTTP 服务，接收 POST 请求，返回 JSON 响应。
-
-以下示例在 `tools/list` 的响应中追加一个自定义工具：
-
-```go
-package main
-
-import (
-    "encoding/base64"
-    "encoding/json"
-    "net/http"
-)
-
-type HookMessage struct {
-    Headers    map[string]string `json:"headers"`
-    Body       string            `json:"body"`       // Base64 编码
-    StatusCode int               `json:"status_code,omitempty"` // HTTP 状态码
-}
-
-type HookPayload struct {
-    Event    string      `json:"event"`
-    ToolName string      `json:"toolname"`
-    Region   string      `json:"region"`
-    Request  HookMessage `json:"request"`
-    Response HookMessage `json:"response"`
-}
-
-func main() {
-    http.HandleFunc("/hook", func(w http.ResponseWriter, r *http.Request) {
-        var payload HookPayload
-        json.NewDecoder(r.Body).Decode(&payload)
-
-        resp := HookPayload{
-            Request:  HookMessage{Headers: map[string]string{}, Body: ""},
-            Response: HookMessage{Headers: map[string]string{}, Body: ""},
-        }
-
-        if payload.Event == "POST_LIST_TOOLS" {
-            // 解码上游响应
-            respBody, _ := base64.StdEncoding.DecodeString(payload.Response.Body)
-
-            var rpcResp map[string]interface{}
-            json.Unmarshal(respBody, &rpcResp)
-
-            // 添加自定义工具
-            result := rpcResp["result"].(map[string]interface{})
-            tools := result["tools"].([]interface{})
-            tools = append(tools, map[string]interface{}{
-                "name":        "my_tool",
-                "description": "我的自定义工具",
-                "inputSchema": map[string]interface{}{
-                    "type":       "object",
-                    "properties": map[string]interface{}{},
-                },
-            })
-            result["tools"] = tools
-            rpcResp["result"] = result
-
-            modified, _ := json.Marshal(rpcResp)
-            resp.Response.Body = base64.StdEncoding.EncodeToString(modified)
-        }
-
-        w.Header().Set("Content-Type", "application/json")
-        json.NewEncoder(w).Encode(resp)
-    })
-    http.ListenAndServe(":9000", nil)
-}
+```text
+客户端 -> AgentRun 数据面 -> AgentRun MCP proxy -> 上游 MCP 服务 -> AgentRun 调用 Hook 服务 -> AgentRun 返回客户端
 ```
 
-### 2. 部署 Hook 服务
+PRE Hook 在请求转发到上游 MCP 服务前执行，POST Hook 在上游 MCP 服务返回后执行。Hook 服务只返回需要改写的字段；空字段表示不修改。
 
-将 Hook 服务部署为可通过 HTTP 访问的服务（如 FC 函数、ECS、K8s 等），获取其公网 URL。
+## 什么时候用 Hook
 
-### 3. 通过 agentrun API 配置 Hook
+| 需求 | 推荐事件 | 常改写字段 |
+|------|----------|------------|
+| 添加、删除或重命名工具 | `POST_LIST_TOOLS` | `response.body` 中的 `result.tools` |
+| 补充或校验工具调用参数 | `PRE_CALL_TOOL` | `request.body` |
+| 把客户端凭证换成后端凭证 | `PRE_CALL_TOOL` | `request.headers` |
+| 按业务规则拦截某次调用 | `PRE_CALL_TOOL` | `response.status_code`、`response.body` |
+| 对工具返回结果做脱敏 | `POST_CALL_TOOL` | `response.body` |
+| 给结果追加审计编号 | `POST_CALL_TOOL` | `response.body` 或 `response.headers` |
 
-通过 agentrun API 创建或更新工具时，在 `mcpConfig.mcpProxyConfiguration.hooks` 中配置 Hook，同时需要将 `mcpConfig.proxyEnabled` 设置为 `true`。
+如果只是想给 Agent 增加新能力，优先使用 Skills、MCP 工具、Function Call 工具或工具市场。只有需要“拦截并改写已有 MCP 请求或响应”时，才需要 Hook。
 
-**创建工具时配置 Hook：**
+## 先跑通仓库示例
 
-```http
-POST /2025-09-10/agents/tools HTTP/1.1
-Host: agentrun.cn-hangzhou.aliyuncs.com
-Content-Type: application/json
+这个仓库提供两个示例：
 
-{
-  "toolName": "my-mcp-tool",
-  "workspaceId": "ws-xxxxxxxxxxxx",
-  "description": "带 Hook 的 MCP 工具",
-  "toolType": "MCP",
-  "createMethod": "MCP_REMOTE",
-  "mcpConfig": {
-    "sessionAffinity": "MCP_STREAMABLE",
-    "sessionAffinityConfig": "{\"sessionTTLInSeconds\":21600,\"sessionConcurrencyPerInstance\":20,\"sessionIdleTimeoutInSeconds\":1800}",
-    "proxyEnabled": true,
-    "mcpProxyConfiguration": {
-      "hooks": [
-        {
-          "url": "https://your-hook-service.example.com/hook",
-          "description": "追加自定义工具",
-          "event": "POST_LIST_TOOLS",
-          "enabled": true,
-          "timeout": 5000
-        }
-      ]
-    }
-  },
-  "artifactType": "Code",
-  "codeConfiguration": {
-    "ossBucketName": "my-tool-bucket",
-    "ossObjectName": "tool-code-v1.0.zip",
-    "language": "python3.12",
-    "command": ["python", "main.py"]
-  },
-  "cpu": 0.5,
-  "memory": 512,
-  "port": 8080
-}
+| 示例 | 适合场景 | 说明 |
+|------|----------|------|
+| [mcp_remote](../../mcp_remote/README.md) | 已有远程 MCP 服务 | 创建 `MCP_REMOTE + proxyEnabled + hooks` 工具 |
+| [mcp_code](../../mcp_code/README.md) | MCP 服务作为代码包托管 | 创建 `CODE_PACKAGE + proxyEnabled + hooks` 工具 |
+
+初次使用建议先跑 `mcp_remote`：
+
+```bash
+cd mcp_remote
+cp .env.example .env
+go run .
 ```
 
-## 请求流程
+`.env` 中填写：
 
-```
-客户端                    agentrun 代理                上游 MCP 服务           Hook 服务
-  │                        │                           │                      │
-  │── POST tools/list ────>│                           │                      │
-  │                        │                           │                      │
-  │                        │── PRE_LIST_TOOLS ──────────────────────────────>│
-  │                        │   (如有 PRE hook)         │                      │
-  │                        │<────────────────────────────────────────────────│
-  │                        │                           │                      │
-  │                        │── 转发请求 ──────────────>│                      │
-  │                        │<── 返回响应 ─────────────│                      │
-  │                        │                           │                      │
-  │                        │── POST_LIST_TOOLS ─────────────────────────────>│
-  │                        │   (如有 POST hook)        │                      │
-  │                        │<───────────────────────────────────────────────│
-  │                        │                           │                      │
-  │<── 最终响应 ───────────│                           │                      │
+```dotenv
+ALIBABA_CLOUD_UID=你的阿里云账号 UID
+ALIBABA_CLOUD_ACCESS_KEY_ID=你的 AccessKey ID
+ALIBABA_CLOUD_ACCESS_KEY_SECRET=你的 AccessKey Secret
 ```
 
-agentrun 对两种 MCP 方法触发 Hook：
+成功后会输出 `tool`、`hook`、`data_plane`、`tools`、`order` 等信息。示例会验证：
+
+1. `tools/list` 能看到 `get_order`。
+2. `get_order(ORDER-1001)` 能返回订单详情。
+3. `POST_CALL_TOOL` Hook 会把手机号、邮箱、收货地址脱敏，并注入 `audit_id`。
+
+## 接入步骤
+
+1. 选择 Hook 事件：修改请求用 PRE，修改响应用 POST。
+2. 编写 Hook 服务：接收 AgentRun 的 JSON 回调，解码 Base64 body，结构化解析 JSON-RPC，再返回改写字段。
+3. 部署 Hook 服务：确保 AgentRun 可以访问 Hook URL。
+4. 创建或更新 MCP 工具：开启 `proxyEnabled`，并配置 `mcpProxyConfiguration.hooks`。
+5. 通过 AgentRun 数据面调用工具，确认客户端看到的是 Hook 改写后的结果。
+
+## Hook 事件
+
+AgentRun 只对两类 MCP 方法触发 Hook：
 
 | MCP 方法 | PRE 事件 | POST 事件 |
 |----------|----------|-----------|
 | `tools/list` | `PRE_LIST_TOOLS` | `POST_LIST_TOOLS` |
 | `tools/call` | `PRE_CALL_TOOL` | `POST_CALL_TOOL` |
 
-- **PRE 阶段**：在转发到上游之前执行，可以修改**请求**（body 和 headers），或通过返回 `status_code` **终止请求**
-- **POST 阶段**：在收到上游响应之后执行，可以修改**响应**（body、headers 和 status_code）
-- 其他 MCP 方法（如 `initialize`）直接透传，不触发 Hook
+- PRE 阶段：上游 MCP 服务调用前执行，可以改写请求，也可以直接终止请求。
+- POST 阶段：上游 MCP 服务返回后执行，可以改写最终返回给客户端的响应。
+- 其他 MCP 方法，如 `initialize`，直接透传，不触发 Hook。
 
-## 协议参考
+## Hook 服务协议
 
-### Hook 请求（agentrun → Hook 服务）
+Hook 服务是一个普通 HTTP 服务：
 
-agentrun 向 Hook 服务发送 HTTP POST 请求，Content-Type 为 `application/json`。
+- 接收 `POST` 请求。
+- 请求和响应都是 JSON。
+- `request.body` 和 `response.body` 都是 Base64 编码的原始 JSON-RPC 内容。
+- Hook 服务应返回 HTTP 200。返回非 200、超时或不可达时，本次 MCP 请求会失败。
 
-请求时会携带 Hook 配置中的 `headers` 字段（用于认证等场景）。
-
-**请求体结构：**
+AgentRun 发给 Hook 服务的请求示例：
 
 ```json
 {
-  "event": "POST_LIST_TOOLS",
-  "toolname": "calculator",
+  "event": "POST_CALL_TOOL",
+  "toolname": "orderdesk",
   "region": "cn-hangzhou",
   "request": {
     "headers": {
       "Content-Type": "application/json",
       "Mcp-Session-Id": "xxx"
     },
-    "body": "<Base64 编码的原始请求 body>"
+    "body": "<Base64 编码的客户端请求 body>"
   },
   "response": {
     "headers": {
@@ -194,26 +110,20 @@ agentrun 向 Hook 服务发送 HTTP POST 请求，Content-Type 为 `application/
 }
 ```
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `event` | string | 事件名称（见上表） |
-| `toolname` | string | 工具名称（创建工具时指定的 `toolName`） |
-| `region` | string | 工具所在区域 |
-| `request.headers` | object | 客户端请求的 HTTP 头 |
-| `request.body` | string | 客户端请求体的 Base64 编码 |
-| `response.headers` | object | 上游响应的 HTTP 头（仅 POST 事件有值） |
-| `response.body` | string | 上游响应体的 Base64 编码（仅 POST 事件有值） |
-| `response.status_code` | int | 上游响应的 HTTP 状态码（仅 POST 事件有值） |
+字段说明：
 
-> PRE 事件中 `response` 字段为空。POST 事件中 `response` 包含上游的实际返回（含 `status_code`）。
->
-> 若上游 MCP 返回 `text/event-stream`，agentrun/midgo 会先读取整条 SSE 流，提取最终 JSON-RPC response，再将这个最终 response 写入 `response.body`。客户端看到的仍是普通 HTTP JSON 响应，不保留 SSE 恢复语义。
+| 字段 | 说明 |
+|------|------|
+| `event` | 当前 Hook 事件 |
+| `toolname` | AgentRun 工具名称 |
+| `region` | 工具所在地域 |
+| `request.headers` | 客户端请求头 |
+| `request.body` | 客户端 JSON-RPC 请求体的 Base64 编码 |
+| `response.headers` | 上游响应头，POST 事件有值 |
+| `response.body` | 上游 JSON-RPC 响应体的 Base64 编码，POST 事件有值 |
+| `response.status_code` | 上游 HTTP 状态码，POST 事件有值 |
 
-### Hook 响应（Hook 服务 → agentrun）
-
-Hook 服务必须返回 HTTP 200 和 JSON 响应。返回非 200 状态码会导致请求失败（fail-close 策略）。
-
-**响应体结构：**
+Hook 服务返回示例：
 
 ```json
 {
@@ -223,111 +133,81 @@ Hook 服务必须返回 HTTP 200 和 JSON 响应。返回非 200 状态码会导
   },
   "response": {
     "headers": {},
-    "body": "",
+    "body": "<Base64 编码的改写后响应 body>",
     "status_code": 0
   }
 }
 ```
 
-**返回值的影响：**
+返回规则：
 
-| 阶段 | 返回字段 | 非零/非空时的效果 | 为空/为零时 |
-|------|----------|------------------|------------|
-| PRE | `request.body` | 用解码后的内容**替换**请求 body，转发给上游 | 保持原始请求不变 |
-| PRE | `request.headers` | 用返回的 headers **替换**转发时的 HTTP 头 | 保持原始 headers |
-| PRE | `response.status_code` | **终止请求**，不转发到上游，直接用该状态码返回给客户端 | 正常转发到上游 |
-| PRE | `response.body` | 终止时返回给客户端的响应 body（需配合 `status_code` 使用） | — |
-| PRE | `response.headers` | 终止时返回给客户端的响应 headers（需配合 `status_code` 使用） | — |
-| POST | `response.body` | 用解码后的内容**替换**返回给客户端的响应 body | 保持上游原始响应 |
-| POST | `response.headers` | 用返回的 headers **替换**返回给客户端的响应 headers | 保持上游原始 headers |
-| POST | `response.status_code` | 用该状态码**替换**返回给客户端的 HTTP 状态码 | 保持默认状态码 |
+| 阶段 | 返回字段 | 非空或非零时 | 为空或为零时 |
+|------|----------|--------------|--------------|
+| PRE | `request.body` | 替换发往上游的请求 body | 保持原请求 body |
+| PRE | `request.headers` | 替换发往上游的请求 headers | 保持原请求 headers |
+| PRE | `response.status_code` | 终止请求，不再调用上游 | 继续调用上游 |
+| PRE | `response.body` | 终止时返回给客户端的 body | 不单独生效 |
+| PRE | `response.headers` | 终止时返回给客户端的 headers | 不单独生效 |
+| POST | `response.body` | 替换返回给客户端的响应 body | 保持上游响应 body |
+| POST | `response.headers` | 替换返回给客户端的响应 headers | 保持上游响应 headers |
+| POST | `response.status_code` | 替换返回给客户端的 HTTP 状态码 | 保持默认状态码 |
 
-> `body` 字段始终使用 **Base64 编码**。空字符串 `""`、`null` 或省略字段均表示不修改。
->
-> `status_code` 为 `0`、`null` 或省略均表示不修改。PRE 阶段设置 `status_code` 会终止请求链路。
+`body` 字段必须是 Base64 编码。空字符串、`null` 或省略字段都表示不修改。没有改写需求时，可以返回空 `request` 和空 `response`。
 
-## Hook 配置参考
+## Hook 配置
 
-Hook 通过 agentrun API 的 `mcpConfig.mcpProxyConfiguration.hooks` 数组配置，每个元素对应一个 Hook 规则：
+创建或更新 MCP 工具时，在 `mcpConfig` 中开启 proxy 并配置 Hook：
 
 ```json
 {
-  "url": "https://hook-service.example.com/hook",
-  "description": "Hook 描述",
-  "headers": {
-    "X-Auth-Token": "your-secret-token"
-  },
-  "enabled": true,
-  "timeout": 5000,
-  "event": "POST_LIST_TOOLS"
+  "proxyEnabled": true,
+  "mcpProxyConfiguration": {
+    "hooks": [
+      {
+        "url": "https://your-hook-service.example.com/hook",
+        "description": "脱敏工具调用结果并注入审计编号",
+        "event": "POST_CALL_TOOL",
+        "enabled": true,
+        "timeout": 5000,
+        "headers": {
+          "X-Hook-Token": "your-secret-token"
+        }
+      }
+    ]
+  }
 }
 ```
+
+字段说明：
 
 | 字段 | 类型 | 必需 | 说明 |
 |------|------|------|------|
 | `url` | string | 是 | Hook 服务 URL |
-| `event` | string | 是 | 触发事件：`PRE_LIST_TOOLS` / `POST_LIST_TOOLS` / `PRE_CALL_TOOL` / `POST_CALL_TOOL` |
+| `event` | string | 是 | `PRE_LIST_TOOLS`、`POST_LIST_TOOLS`、`PRE_CALL_TOOL` 或 `POST_CALL_TOOL` |
 | `enabled` | bool | 否 | 是否启用 |
-| `timeout` | int32 | 否 | 超时时间（毫秒），默认 5000 |
-| `description` | string | 否 | 描述信息 |
-| `headers` | map<string, string> | 否 | 调用 Hook 时附加的 HTTP 头（可用于认证） |
+| `timeout` | int32 | 否 | 超时时间，单位毫秒，默认 5000 |
+| `description` | string | 否 | Hook 描述 |
+| `headers` | map<string, string> | 否 | AgentRun 调用 Hook 服务时附加的请求头，常用于认证 |
 
-同一事件可以配置多个 Hook，按数组顺序依次执行，前一个 Hook 的修改会传递给下一个。
+同一事件可以配置多个 Hook，按数组顺序依次执行。前一个 Hook 的改写结果会传递给下一个 Hook。
 
-## 常见场景
+## 本仓库示例代码
 
-### 修改工具列表
+两个快速入门示例都包含这两个服务：
 
-注册 `POST_LIST_TOOLS` 事件，解码 `response.body`，修改 JSON-RPC 响应中的 `result.tools` 数组，编码后写入返回的 `response.body`。
+- `services/orderdesk`：示例 MCP 服务，提供 `get_order`。
+- `services/userhook`：示例 Hook 服务，只处理 `POST_CALL_TOOL`，对订单结果脱敏并注入 `audit_id`。
 
-### 修改工具调用结果
+把示例改成自己的 Hook 时，通常只需要改：
 
-注册 `POST_CALL_TOOL` 事件，解码 `response.body`，修改 `result.content` 中的文本内容。
+1. `services/orderdesk`：替换为你的业务 MCP 工具。
+2. `services/userhook`：替换为你的审计、脱敏、拦截或凭证转换逻辑。
+3. `internal/demo/tool.go` 的 `buildHooks`：调整事件、URL、超时、headers。
 
-### 拦截和修改请求参数
+## 注意事项
 
-注册 `PRE_CALL_TOOL` 事件，解码 `request.body`，修改 JSON-RPC 请求中的 `params`，编码后写入返回的 `request.body`。
-
-### 凭证转换
-
-注册 `PRE_CALL_TOOL` 事件，从 `request.headers` 中读取客户端凭证，转换为后端凭证后写入返回的 `request.headers`。agentrun 会使用返回的 headers 替代原始 headers 转发给上游。
-
-### 在 PRE 阶段终止请求
-
-注册 `PRE_CALL_TOOL` 事件，根据业务逻辑决定是否拦截请求。返回 `response.status_code`（非零值）即可终止请求，agentrun 不会将请求转发到上游，而是直接用 `response.body` 和 `response.status_code` 返回给客户端。
-
-```go
-// 示例：拦截特定工具调用，直接返回结果
-if toolName == "blocked_tool" {
-    rpcResp := map[string]interface{}{
-        "jsonrpc": "2.0",
-        "id":      rpcID,
-        "result": map[string]interface{}{
-            "content": []interface{}{
-                map[string]interface{}{"type": "text", "text": "此工具已被拦截"},
-            },
-        },
-    }
-    respBytes, _ := json.Marshal(rpcResp)
-    return HookPayload{
-        Response: HookMessage{
-            Body:       base64.StdEncoding.EncodeToString(respBytes),
-            StatusCode: 200,
-        },
-    }
-}
-```
-
-### 在 POST 阶段修改状态码
-
-注册 `POST_CALL_TOOL` 事件，Hook 服务可以通过 `payload.Response.StatusCode` 获取上游的 HTTP 状态码，并通过在返回中设置 `response.status_code` 来修改返回给客户端的状态码。
-
-## 错误处理
-
-agentrun 采用 **fail-close** 策略：
-
-- Hook 服务返回非 200 状态码 → 请求失败，返回 502
-- Hook 服务超时 → 请求失败，返回 502
-- Hook 服务不可达 → 请求失败，返回 502
-
-确保 Hook 服务的高可用性，否则会影响所有经过代理的 MCP 请求。
+- Hook 服务失败会影响本次 MCP 请求，生产环境要保证 Hook 服务可用。
+- 只返回需要改写的字段，避免无意义地重写完整请求或响应。
+- 对 Base64 解码后的 JSON-RPC 内容做结构化解析，不要依赖字符串替换。
+- 如果 Hook URL 需要认证，使用 `headers` 配置固定密钥，并在 Hook 服务端校验。
+- 密钥只放在 `.env` 中，不要提交到代码仓库。
