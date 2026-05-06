@@ -114,24 +114,6 @@ func Run() error {
 func (d *demoContext) run() error {
 	slog.Info("开始运行 MCP_REMOTE Hook quickstart", "tool", d.toolName, "dataEndpoint", d.dataEndpoint)
 
-	var createdTool bool
-	defer func() {
-		if createdTool {
-			if err := deleteTool(d.sdkClient, d.toolName); err != nil {
-				slog.Warn("清理 tool 失败", "tool", d.toolName, "error", err)
-			}
-		}
-	}()
-
-	createdFunctions := []string{}
-	defer func() {
-		for i := len(createdFunctions) - 1; i >= 0; i-- {
-			if err := deleteFunction(d.fcClient, createdFunctions[i]); err != nil {
-				slog.Warn("清理 FC 函数失败", "function", createdFunctions[i], "error", err)
-			}
-		}
-	}()
-
 	if err := buildBinary("orderdesk", filepath.Join(d.moduleDir, "services", "orderdesk"), filepath.Join(d.binDir, "orderdesk")); err != nil {
 		return err
 	}
@@ -143,7 +125,6 @@ func (d *demoContext) run() error {
 	if err != nil {
 		return err
 	}
-	createdFunctions = append(createdFunctions, d.mcpFuncName)
 	slog.Info("远程 MCP 函数已部署", "url", mcpURL)
 	if err := warmupFunction(d.ctx, mcpURL, 2*time.Minute); err != nil {
 		return fmt.Errorf("预热远程 MCP 失败: %w", err)
@@ -153,7 +134,6 @@ func (d *demoContext) run() error {
 	if err != nil {
 		return err
 	}
-	createdFunctions = append(createdFunctions, d.hookFuncName)
 	slog.Info("Hook 函数已部署", "url", hookURL)
 
 	remoteURL := remoteMCPConfigURL(mcpURL)
@@ -161,7 +141,6 @@ func (d *demoContext) run() error {
 	if err := createRemoteTool(d.sdkClient, d.toolName, remoteURL, hookEndpoint); err != nil {
 		return err
 	}
-	createdTool = true
 
 	if err := waitForToolReady(d.sdkClient, d.toolName, 5*time.Minute); err != nil {
 		return err

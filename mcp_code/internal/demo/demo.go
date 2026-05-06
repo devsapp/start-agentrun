@@ -118,24 +118,6 @@ func Run() error {
 func (d *demoContext) run() error {
 	slog.Info("开始运行 CODE_PACKAGE Hook quickstart", "tool", d.toolName, "dataEndpoint", d.dataEndpoint)
 
-	var createdTool bool
-	defer func() {
-		if createdTool {
-			if err := deleteTool(d.sdkClient, d.toolName); err != nil {
-				slog.Warn("清理 tool 失败", "tool", d.toolName, "error", err)
-			}
-		}
-	}()
-
-	var createdFunctions []string
-	defer func() {
-		for i := len(createdFunctions) - 1; i >= 0; i-- {
-			if err := deleteFunction(d.fcClient, createdFunctions[i]); err != nil {
-				slog.Warn("清理 FC 函数失败", "function", createdFunctions[i], "error", err)
-			}
-		}
-	}()
-
 	if err := buildBinary("orderdesk", filepath.Join(d.moduleDir, "services", "orderdesk"), filepath.Join(d.binDir, "orderdesk")); err != nil {
 		return err
 	}
@@ -147,7 +129,6 @@ func (d *demoContext) run() error {
 	if err != nil {
 		return err
 	}
-	createdFunctions = append(createdFunctions, d.hookFuncName)
 
 	toolZipPath := filepath.Join(d.binDir, "orderdesk.zip")
 	if err := createToolCodeZipFile(toolZipPath, filepath.Join(d.binDir, "orderdesk"), "orderdesk"); err != nil {
@@ -162,7 +143,6 @@ func (d *demoContext) run() error {
 	if err != nil {
 		return err
 	}
-	createdTool = true
 
 	if err := waitForToolReady(d.sdkClient, d.toolName, createToolRequestID, 5*time.Minute); err != nil {
 		return err
