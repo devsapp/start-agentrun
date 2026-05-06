@@ -12,11 +12,14 @@ func dataPlaneMCPURL(proto, dataEndpoint, toolName string) (string, string) {
 	return fmt.Sprintf("%s/tools/%s/mcp", endpointBaseURL(proto, dataEndpoint), toolName), dataPlaneProduct(dataEndpoint)
 }
 
-// remoteMCPConfigURL 构造写入 MCP_REMOTE 控制面配置的远程 MCP 地址。
+// remoteMCPConfigURL 构造写入 MCP_REMOTE 控制面配置的远程 MCP 端点。
 // 参数 baseURL 是部署出的远程 MCP 函数基地址。
 func remoteMCPConfigURL(baseURL string) string {
 	baseURL = strings.TrimSuffix(baseURL, "/")
-	return strings.TrimSuffix(baseURL, "/mcp")
+	if strings.HasSuffix(baseURL, "/mcp") {
+		return baseURL
+	}
+	return baseURL + "/mcp"
 }
 
 // defaultDataEndpoint 构造默认数据面 endpoint。

@@ -82,6 +82,6 @@ order={"audit_id":"audit_...","phone":"138****5678",...}
 3. 在 `internal/demo/tool.go` 的 `buildHooks` 中调整 Hook 事件、描述、超时和认证 headers。
 4. 重新运行 `go run .`，通过 `data_plane` 地址验证最终效果。
 
-创建远程 MCP 工具时，写入控制面的远程 MCP 地址使用函数基地址，不额外拼 `/mcp`；访问数据面时使用 AgentRun 生成的 `.../tools/<tool>/mcp`。
+创建远程 MCP 工具时，写入控制面的 `protocolSpec` 使用 `mcpServers.default.transportType=streamable-http`，并将 `mcpServers.default.url` 指向远程服务的 `/mcp` 端点；访问数据面时使用 AgentRun 生成的 `.../tools/<tool>/mcp`。
 
 更完整的 Hook 协议和配置字段见 [../docs/users/hook.md](../docs/users/hook.md)。

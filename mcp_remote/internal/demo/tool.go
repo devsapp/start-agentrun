@@ -15,15 +15,11 @@ import (
 	"github.com/alibabacloud-go/tea/tea"
 )
 
+// createRemoteTool 创建带 MCP proxy 和 Hook 配置的远程 MCP 工具。
+// 参数 sdkClient 是 AgentRun 控制面客户端；参数 toolName 是工具名称；参数 remoteURL 是远程 MCP /mcp 地址；参数 hookURL 是 Hook 回调地址。
 func createRemoteTool(sdkClient *agentrun.Client, toolName, remoteURL, hookURL string) error {
 	hooks := buildHooks(hookURL)
-	protocolSpec := marshalJSON(map[string]any{
-		"mcpServers": map[string]any{
-			"default": map[string]any{
-				"url": remoteURL,
-			},
-		},
-	})
+	protocolSpec := buildRemoteProtocolSpec(remoteURL)
 
 	createReq := &agentrun.CreateToolInputV2{
 		ToolName:     tea.String(toolName),
@@ -78,6 +74,19 @@ func createRemoteTool(sdkClient *agentrun.Client, toolName, remoteURL, hookURL s
 		return nil
 	}
 	return rawUpdateTool(sdkClient, toolName, rawHooks)
+}
+
+// buildRemoteProtocolSpec 构造 MCP_REMOTE 控制面需要的 protocolSpec JSON。
+// 参数 remoteURL 是远程 MCP /mcp 地址。
+func buildRemoteProtocolSpec(remoteURL string) string {
+	return marshalJSON(map[string]any{
+		"mcpServers": map[string]any{
+			"default": map[string]any{
+				"transportType": "streamable-http",
+				"url":           remoteURL,
+			},
+		},
+	})
 }
 
 func buildHooks(hookURL string) []*agentrun.Hook {
