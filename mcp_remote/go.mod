@@ -1,6 +1,6 @@
 module hookquickstart/mcpremote
 
-go 1.26.1
+go 1.23.0
 
 require (
 	github.com/alibabacloud-go/agentrun-20250910/v5 v5.7.0
