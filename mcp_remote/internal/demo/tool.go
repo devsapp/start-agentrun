@@ -193,11 +193,3 @@ func getToolDetail(sdkClient *agentrun.Client, toolName string) (*agentrun.Tool,
 	}
 	return resp.Body.Data, nil
 }
-
-func deleteTool(sdkClient *agentrun.Client, toolName string) error {
-	_, err := sdkClient.DeleteToolWithOptions(tea.String(toolName), &agentrun.DeleteToolRequest{}, map[string]*string{}, &util.RuntimeOptions{})
-	if err != nil {
-		return fmt.Errorf("DeleteTool: %s", formatSDKError(err))
-	}
-	return nil
-}

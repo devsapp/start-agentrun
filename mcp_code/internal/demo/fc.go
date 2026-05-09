@@ -49,24 +49,6 @@ func deployFunction(ctx context.Context, client *fc.Client, funcName string, cod
 	return ensureHTTPTrigger(client, funcName)
 }
 
-// deleteFunction 删除 FC 函数及其触发器。
-// 参数 client 是 FC 客户端；funcName 是函数名。
-func deleteFunction(client *fc.Client, funcName string) error {
-	if resp, err := client.ListTriggers(tea.String(funcName), &fc.ListTriggersRequest{}); err == nil && resp.Body != nil {
-		for _, trigger := range resp.Body.Triggers {
-			if trigger.TriggerName == nil {
-				continue
-			}
-			_, _ = client.DeleteTrigger(tea.String(funcName), trigger.TriggerName)
-		}
-	}
-	_, err := client.DeleteFunction(tea.String(funcName))
-	if err != nil && !strings.Contains(strings.ToLower(err.Error()), "not found") && !strings.Contains(err.Error(), "404") {
-		return err
-	}
-	return nil
-}
-
 // getFunctionURL 读取 Hook 函数的公网访问地址。
 // 参数 client 是 FC 客户端；funcName 是函数名；uid 是阿里云账号 ID。
 func getFunctionURL(client *fc.Client, funcName, uid string) (string, error) {

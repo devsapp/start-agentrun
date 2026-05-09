@@ -66,6 +66,8 @@ tools=get_order
 order={"audit_id":"audit_...","phone":"138****5678",...}
 ```
 
+示例不会自动清理测试资源。创建的 AgentRun Tool、FC 函数和 FC TempBucket 代码包会保留，便于继续调试；不再需要时请到控制台手动删除。
+
 ## 验证内容
 
 示例会验证三件事：

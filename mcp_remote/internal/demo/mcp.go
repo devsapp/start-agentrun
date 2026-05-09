@@ -29,7 +29,7 @@ func (d *demoContext) verifyHookEffects(maxRetries int) (hookObservation, string
 			continue
 		}
 
-		client, cleanup, err := connectMCP(d.ctx, mcpURL, product, d.ak, d.sk)
+		client, closeClient, err := connectMCP(d.ctx, mcpURL, product, d.ak, d.sk)
 		if err != nil {
 			lastErr = err
 			slog.Warn("连接 MCP 失败", "attempt", attempt, "error", err)
@@ -37,7 +37,7 @@ func (d *demoContext) verifyHookEffects(maxRetries int) (hookObservation, string
 		}
 
 		obs, err := collectHookObservation(d.ctx, client)
-		cleanup()
+		closeClient()
 		if err != nil {
 			lastErr = err
 			slog.Warn("验证 Hook 效果失败", "attempt", attempt, "error", err)

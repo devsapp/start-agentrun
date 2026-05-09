@@ -56,6 +56,8 @@ ALIBABA_CLOUD_ACCESS_KEY_SECRET=你的 AccessKey Secret
 2. `get_order(ORDER-1001)` 能返回订单详情。
 3. `POST_CALL_TOOL` Hook 会把手机号、邮箱、收货地址脱敏，并注入 `audit_id`。
 
+示例不会自动清理测试资源。运行完成后，创建的 AgentRun Tool、FC 函数和代码包等测试资源会保留；不再需要时请到控制台手动删除。
+
 ## 接入步骤
 
 1. 选择 Hook 事件：修改请求用 PRE，修改响应用 POST。

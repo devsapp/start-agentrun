@@ -151,13 +151,3 @@ func getToolDetail(sdkClient *agentrun.Client, toolName string) (*agentrun.Tool,
 	}
 	return resp.Body.Data, nil
 }
-
-// deleteTool 删除工具。
-// 参数 sdkClient 是 AgentRun 客户端；toolName 是工具名称。
-func deleteTool(sdkClient *agentrun.Client, toolName string) error {
-	_, err := sdkClient.DeleteTool(tea.String(toolName))
-	if err != nil {
-		return fmt.Errorf("DeleteTool: %s", formatSDKError(err))
-	}
-	return nil
-}

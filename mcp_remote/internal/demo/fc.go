@@ -45,22 +45,6 @@ func deployFunction(ctx context.Context, client *fc.Client, funcName, zipBase64 
 	return ensureHTTPTrigger(client, funcName)
 }
 
-func deleteFunction(client *fc.Client, funcName string) error {
-	if resp, err := client.ListTriggers(tea.String(funcName), &fc.ListTriggersRequest{}); err == nil && resp.Body != nil {
-		for _, trigger := range resp.Body.Triggers {
-			if trigger.TriggerName == nil {
-				continue
-			}
-			_, _ = client.DeleteTrigger(tea.String(funcName), trigger.TriggerName)
-		}
-	}
-	_, err := client.DeleteFunction(tea.String(funcName))
-	if err != nil && !strings.Contains(strings.ToLower(err.Error()), "not found") && !strings.Contains(err.Error(), "404") {
-		return err
-	}
-	return nil
-}
-
 func getFunctionURL(client *fc.Client, funcName, uid string) (string, error) {
 	resp, err := client.ListTriggers(tea.String(funcName), &fc.ListTriggersRequest{})
 	if err == nil && resp.Body != nil {
