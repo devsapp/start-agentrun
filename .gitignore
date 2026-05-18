@@ -5,4 +5,7 @@ mcp_remote/services/userhook/userhook
 mcp_code/mcp_code
 mcp_code/services/orderdesk/orderdesk
 mcp_code/services/userhook/userhook
+advance/mcp_header/mcp_header
+advance/mcp_header/services/headerdesk/headerdesk
+advance/mcp_header/services/userhook/userhook
 .bin/

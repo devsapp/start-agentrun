@@ -27,12 +27,13 @@ PRE Hook 在请求转发到上游 MCP 服务前执行，POST Hook 在上游 MCP 
 
 ## 先跑通仓库示例
 
-这个仓库提供两个示例：
+这个仓库提供三个示例：
 
 | 示例 | 适合场景 | 说明 |
 |------|----------|------|
 | [mcp_remote](../../mcp_remote/README.md) | 已有远程 MCP 服务 | 创建 `MCP_REMOTE + proxyEnabled + hooks` 工具 |
 | [mcp_code](../../mcp_code/README.md) | MCP 服务作为代码包托管 | 创建 `CODE_PACKAGE + proxyEnabled + hooks` 工具 |
+| [advance/mcp_header](../../advance/mcp_header/README.md) | 调试 header 改写 | 单独验证 `PRE_CALL_TOOL` 改写请求头、`POST_CALL_TOOL` 改写响应头 |
 
 初次使用建议先跑 `mcp_remote`：
 
@@ -55,6 +56,16 @@ ALIBABA_CLOUD_ACCESS_KEY_SECRET=你的 AccessKey Secret
 1. `tools/list` 能看到 `get_order`。
 2. `get_order(ORDER-1001)` 能返回订单详情。
 3. `POST_CALL_TOOL` Hook 会把手机号、邮箱、收货地址脱敏，并注入 `audit_id`。
+
+如果只想验证 header 改写，运行独立 case：
+
+```bash
+cd advance/mcp_header
+cp .env.example .env
+go run .
+```
+
+成功后会输出 `debug_request_header=pre-call-tool-upstream` 和 `debug_response_header=post-call-tool-client`。
 
 示例不会自动清理测试资源。运行完成后，创建的 AgentRun Tool、FC 函数和代码包等测试资源会保留；不再需要时请到控制台手动删除。
 
@@ -195,7 +206,7 @@ Hook 服务返回示例：
 
 ## 本仓库示例代码
 
-两个快速入门示例都包含这两个服务：
+两个基础快速入门示例都包含这两个服务：
 
 - `services/orderdesk`：示例 MCP 服务，提供 `get_order`。
 - `services/userhook`：示例 Hook 服务，只处理 `POST_CALL_TOOL`，对订单结果脱敏并注入 `audit_id`。
@@ -205,6 +216,8 @@ Hook 服务返回示例：
 1. `services/orderdesk`：替换为你的业务 MCP 工具。
 2. `services/userhook`：替换为你的审计、脱敏、拦截或凭证转换逻辑。
 3. `internal/demo/tool.go` 的 `buildHooks`：调整事件、URL、超时、headers。
+
+`advance/mcp_header` 是独立 header 验证 case，核心服务是 `services/headerdesk` 和 `services/userhook`。
 
 ## 注意事项
 

@@ -18,6 +18,7 @@
 | [docs/users/hook.md](docs/users/hook.md) | Hook 概念、事件、协议、配置字段和改造步骤 |
 | [mcp_remote/README.md](mcp_remote/README.md) | 已有远程 MCP 服务时，如何加 Hook |
 | [mcp_code/README.md](mcp_code/README.md) | MCP 服务作为代码包托管时，如何加 Hook |
+| [advance/mcp_header/README.md](advance/mcp_header/README.md) | 独立验证 PRE/POST Hook 改写 header |
 
 初次使用建议先跑 `mcp_remote`。它更接近“已有远程 MCP 服务，只想通过 AgentRun 加一层 Hook”的场景。
 
@@ -27,11 +28,14 @@
 |------|------|
 | `mcp_remote/` | 部署远程 MCP 服务和 Hook 服务，创建 `MCP_REMOTE + proxyEnabled + hooks` 工具 |
 | `mcp_code/` | 打包 MCP 服务为代码包，创建 `CODE_PACKAGE + proxyEnabled + hooks` 工具 |
+| `advance/mcp_header/` | 单独验证 `PRE_CALL_TOOL` 改写上游请求头、`POST_CALL_TOOL` 改写客户端响应头 |
 
-两个示例里的核心服务一致：
+`mcp_remote` 和 `mcp_code` 两个基础示例里的核心服务一致：
 
 - `services/orderdesk`：订单查询 MCP 服务，提供 `get_order`。
 - `services/userhook`：Hook 回调服务，处理 `POST_CALL_TOOL`，对订单结果脱敏并注入审计编号。
+
+`advance/mcp_header` 是独立调试 case，只提供 `debug_headers` 工具，用于验证请求头和响应头改写。
 
 ## 快速运行
 
